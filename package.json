@@ -2,8 +2,11 @@
   "name": "web-channel",
   "version": "1.0.0",
   "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.32.0"
+  },
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "openclaw": "file:/Users/xiaoxiongweng/.nvm/versions/node/v22.15.1/lib/node_modules/openclaw"
   },
   "openclaw": {
     "extensions": [
@@ -14,7 +17,7 @@
       "label": "Atypica Web",
       "selectionLabel": "Atypica Web (API)",
       "docsPath": "/channels/atypica-web",
-      "blurb": "Custom web channel for Atypica."
+      "blurb": "Custom web channel for Atypica app integration."
     },
     "install": {
       "localPath": "atypica-channel",

@@ -12,7 +12,7 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 
 ## 2. Configuration
 
-Enable the channel in your `~/.openclaw/openclaw.json`:
+Enable the channel in your `~/.openclaw/openclaw.json` (or configure via the OpenClaw dashboard):
 
 ```json
 {
@@ -27,7 +27,15 @@ Enable the channel in your `~/.openclaw/openclaw.json`:
 }
 ```
 
-### Environment Variables
+### Channel Config (Preferred)
+
+These are configurable in the OpenClaw dashboard under the `atypica-web` channel:
+
+- `channels.atypica-web.webhookUrl`: Your web service endpoint to receive agent replies.
+- `channels.atypica-web.apiSecret`: Secret token for authenticating push requests.
+- `channels.atypica-web.allowFrom`: Allowed user IDs (optional).
+
+### Environment Variables (Fallback)
 
 Set the following environment variables for the OpenClaw Gateway process:
 
@@ -48,7 +56,8 @@ Send a message from your system to an agent.
   {
     "userId": "user_123",
     "projectId": "project_abc",
-    "message": "Hello OpenClaw!"
+    "message": "Hello OpenClaw!",
+    "accountId": "default"
   }
   ```
 - **Response**: `202 Accepted`
@@ -57,7 +66,7 @@ Send a message from your system to an agent.
 
 Retrieve message history for a specific user and project.
 
-- **URL**: `GET http://<gateway-host>:18789/atypica/messages?userId=user_123&projectId=project_abc&limit=50`
+- **URL**: `GET http://<gateway-host>:18789/atypica/messages?userId=user_123&projectId=project_abc&limit=50&accountId=default`
 - **Response**: `200 OK`
   ```json
   {

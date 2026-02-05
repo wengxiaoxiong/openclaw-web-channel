@@ -4,12 +4,14 @@ import {
 } from "./src/channel.js";
 import { handleHistoryRequest } from "./src/history.js";
 import { handleInboundRequest } from "./src/inbound.js";
+import { setAtypicaRuntime } from "./src/runtime.js";
 
 const plugin = {
   id: "web-channel",
   name: "Atypica Web",
   description: "Custom web channel for Atypica app",
   register(api: OpenClawPluginApi) {
+    setAtypicaRuntime(api.runtime);
     // Register the channel
     api.registerChannel({ plugin: atypicaWebChannelPlugin });
 

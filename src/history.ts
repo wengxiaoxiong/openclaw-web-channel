@@ -1,17 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { OpenClawPluginHttpRouteHandler } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, OpenClawPluginHttpRouteHandler } from "openclaw/plugin-sdk";
 import { URL } from "node:url";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { homedir } from "node:os";
+import { resolveDefaultAtypicaWebAccountId } from "./config.js";
+import { getAtypicaRuntime } from "./runtime.js";
 
-function getStateDir(): string {
-  return process.env.OPENCLAW_STATE_DIR || path.join(homedir(), ".openclaw");
-}
-
-function getStorePath(agentId: string): string {
-  return path.join(getStateDir(), "agents", agentId);
-}
+type SessionStore = Record<string, { sessionId?: string; sessionFile?: string }>;
 
 export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
   req: IncomingMessage,
@@ -25,9 +20,10 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
 
   try {
     const url = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
-    const userId = url.searchParams.get("userId");
-    const projectId = url.searchParams.get("projectId");
-    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+    const userId = url.searchParams.get("userId")?.trim();
+    const projectId = url.searchParams.get("projectId")?.trim();
+    const limit = Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10));
+    const accountId = url.searchParams.get("accountId")?.trim() || undefined;
 
     if (!userId || !projectId) {
       res.statusCode = 400;
@@ -36,71 +32,80 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       return;
     }
 
-    const agentId = "main";
-    const sessionKey = `agent:${userId}:project:${projectId}`;
-    const storePath = getStorePath(agentId);
-    const storeFile = path.join(storePath, "session-store.json");
+    const core = getAtypicaRuntime();
+    const cfg = core.config.loadConfig() as OpenClawConfig;
+    const resolvedAccountId = accountId ?? resolveDefaultAtypicaWebAccountId(cfg);
+    const route = core.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "atypica-web",
+      accountId: resolvedAccountId,
+      peer: { kind: "dm", id: `${userId}:${projectId}` },
+    });
 
-    // 读取 session entry
-    let store: Record<string, any> = {};
-    if (fs.existsSync(storeFile)) {
+    const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
+      agentId: route.agentId,
+    });
+
+    let store: SessionStore = {};
+    if (fs.existsSync(storePath)) {
       try {
-        store = JSON.parse(fs.readFileSync(storeFile, "utf-8"));
-      } catch {}
+        store = JSON.parse(fs.readFileSync(storePath, "utf-8")) as SessionStore;
+      } catch {
+        store = {};
+      }
     }
 
-    const entry = store[sessionKey];
-    if (!entry || !entry.sessionId) {
+    const entry = store[route.sessionKey];
+    if (!entry?.sessionId) {
       res.statusCode = 404;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: false, error: "Session not found", sessionKey }));
+      res.end(JSON.stringify({ ok: false, error: "Session not found", sessionKey: route.sessionKey }));
       return;
     }
 
-    // 读取 transcript 文件
-    const sessionDir = path.join(storePath, "sessions");
-    const transcriptPath = path.join(sessionDir, `${entry.sessionId}.jsonl`);
-    
-    let messages: any[] = [];
-    try {
-      if (fs.existsSync(transcriptPath)) {
-        const content = fs.readFileSync(transcriptPath, "utf-8");
-        messages = content
-          .split("\n")
-          .filter(line => line.trim())
-          .map(line => {
-            try {
-              return JSON.parse(line);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-      }
-    } catch (err) {
-      console.error("[atypica-web] Error reading transcript:", err);
+    const sessionFile =
+      entry.sessionFile?.trim() || path.join(path.dirname(storePath), `${entry.sessionId}.jsonl`);
+
+    let messages: Array<Record<string, unknown>> = [];
+    if (fs.existsSync(sessionFile)) {
+      const content = fs.readFileSync(sessionFile, "utf-8");
+      messages = content
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => {
+          try {
+            return JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .filter((line): line is Record<string, unknown> => Boolean(line))
+        .filter((line) => line.type !== "session");
     }
 
-    // 限制返回数量
     const sliced = messages.slice(-limit);
 
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({
-      ok: true,
-      userId,
-      projectId,
-      sessionKey,
-      messages: sliced,
-    }));
-  } catch (err: any) {
+    res.end(
+      JSON.stringify({
+        ok: true,
+        userId,
+        projectId,
+        sessionKey: route.sessionKey,
+        messages: sliced,
+      }),
+    );
+  } catch (err: unknown) {
     console.error("[atypica-web] History handler error:", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({
-      ok: false,
-      error: "Internal Server Error",
-      details: err.message,
-    }));
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: "Internal Server Error",
+        details: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 };
