@@ -1,31 +1,29 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { z } from "zod";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 
-export const AtypicaWebAccountConfigSchema = Type.Object(
-  {
-    enabled: Type.Optional(Type.Boolean()),
-    name: Type.Optional(Type.String()),
-    webhookUrl: Type.Optional(Type.String()),
-    apiSecret: Type.Optional(Type.String()),
-    allowFrom: Type.Optional(Type.Array(Type.String())),
-  },
-  { additionalProperties: false },
-);
+export const AtypicaWebAccountConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    name: z.string().optional(),
+    webhookUrl: z.string().optional(),
+    apiSecret: z.string().optional(),
+    allowFrom: z.array(z.string()).optional(),
+  })
+  .strict();
 
-export const AtypicaWebConfigSchema = Type.Object(
-  {
-    enabled: Type.Optional(Type.Boolean({ default: true })),
-    name: Type.Optional(Type.String()),
-    webhookUrl: Type.Optional(Type.String()),
-    apiSecret: Type.Optional(Type.String()),
-    allowFrom: Type.Optional(Type.Array(Type.String())),
-    accounts: Type.Optional(Type.Record(Type.String(), AtypicaWebAccountConfigSchema)),
-  },
-  { additionalProperties: false },
-);
+export const AtypicaWebConfigSchema = z
+  .object({
+    enabled: z.boolean().optional().default(true),
+    name: z.string().optional(),
+    webhookUrl: z.string().optional(),
+    apiSecret: z.string().optional(),
+    allowFrom: z.array(z.string()).optional(),
+    accounts: z.record(z.string(), AtypicaWebAccountConfigSchema).optional(),
+  })
+  .strict();
 
-export type AtypicaWebAccountConfig = Static<typeof AtypicaWebAccountConfigSchema>;
-export type AtypicaWebConfig = Static<typeof AtypicaWebConfigSchema>;
+export type AtypicaWebAccountConfig = z.infer<typeof AtypicaWebAccountConfigSchema>;
+export type AtypicaWebConfig = z.infer<typeof AtypicaWebConfigSchema>;
 
 export function resolveAtypicaWebConfig(cfg: unknown, accountId?: string): AtypicaWebAccountConfig {
   const base = (cfg as Record<string, unknown>)?.channels?.["atypica-web"] as

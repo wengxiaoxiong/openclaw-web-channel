@@ -2,9 +2,6 @@
   "name": "web-channel",
   "version": "1.0.0",
   "type": "module",
-  "dependencies": {
-    "@sinclair/typebox": "^0.32.0"
-  },
   "devDependencies": {
     "openclaw": "file:/Users/xiaoxiongweng/.nvm/versions/node/v22.15.1/lib/node_modules/openclaw"
   },
