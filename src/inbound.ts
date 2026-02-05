@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawConfig, OpenClawPluginHttpRouteHandler } from "openclaw/plugin-sdk";
 import { spawn } from "node:child_process";
+import * as path from "node:path";
+import * as os from "node:os";
 import { resolveDefaultAtypicaWebAccountId } from "./config.js";
 import { pushAtypicaReply } from "./outbound.js";
 import { getAtypicaRuntime } from "./runtime.js";
@@ -13,6 +15,91 @@ type InboundPayload = {
   timestamp?: number;
   accountId?: string;
 };
+
+/**
+ * 检查 agent 是否存在
+ */
+function agentExists(cfg: OpenClawConfig, agentId: string): boolean {
+  const agents = cfg.agents?.list ?? [];
+  const normalizedId = agentId.toLowerCase().trim();
+  return agents.some((entry) => {
+    if (!entry?.id) return false;
+    return entry.id.toLowerCase().trim() === normalizedId;
+  });
+}
+
+/**
+ * 创建 agent/user
+ */
+async function createAgent(options: {
+  agentId: string;
+  workspace?: string;
+  bind?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { agentId, workspace, bind } = options;
+  
+  // 默认 workspace 路径：~/.openclaw/users/<agentId>
+  const defaultWorkspace = workspace || path.join(os.homedir(), ".openclaw", "users", agentId);
+  
+  const args = [
+    "agents",
+    "add",
+    agentId,
+    "--workspace",
+    defaultWorkspace,
+    "--non-interactive",
+  ];
+
+  // 如果指定了 bind，添加 --bind 参数
+  // 默认绑定到 atypica-web channel
+  if (bind) {
+    args.push("--bind", bind);
+  } else {
+    args.push("--bind", "atypica-web");
+  }
+
+  console.log(`[atypica-web] Creating agent: openclaw ${args.join(" ")}`);
+
+  const proc = spawn("openclaw", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        const errorMsg = stderr.trim() || stdout.trim() || `Command failed with code ${code}`;
+        console.error(`[atypica-web] Failed to create agent: ${errorMsg}`);
+        resolve({
+          ok: false,
+          error: errorMsg,
+        });
+        return;
+      }
+
+      console.log(`[atypica-web] Successfully created agent: ${agentId}`);
+      resolve({ ok: true });
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[atypica-web] Failed to spawn agents add command:`, err);
+      resolve({
+        ok: false,
+        error: `Failed to execute command: ${err.message}`,
+      });
+    });
+  });
+}
 
 /**
  * CLI 调用函数 - 调用 openclaw agent 命令
@@ -149,10 +236,48 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     }
 
     const core = getAtypicaRuntime();
-    const cfg = core.config.loadConfig() as OpenClawConfig;
+    let cfg = core.config.loadConfig() as OpenClawConfig;
     const resolvedAccountId = payload.accountId?.trim() || resolveDefaultAtypicaWebAccountId(cfg);
 
-    // 使用 SDK routing 获取 sessionKey
+    // 使用 userId 作为 agentId（规范化处理）
+    // 移除特殊字符，只保留字母、数字、连字符和下划线
+    const normalizedAgentId = userId.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    
+    console.log(`[atypica-web] Received message from ${userId}:${projectId}`);
+    console.log(`[atypica-web] Using agentId: ${normalizedAgentId}`);
+
+    // 检查 agent 是否存在，如果不存在则创建
+    if (!agentExists(cfg, normalizedAgentId)) {
+      console.log(`[atypica-web] Agent "${normalizedAgentId}" does not exist, creating...`);
+      
+      // 构建 workspace 路径：~/.openclaw/users/<userId>
+      const workspace = path.join(os.homedir(), ".openclaw", "users", userId);
+      
+      const createResult = await createAgent({
+        agentId: normalizedAgentId,
+        workspace,
+        bind: "atypica-web",
+      });
+
+      if (!createResult.ok) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "Failed to create agent",
+            details: createResult.error,
+          }),
+        );
+        return;
+      }
+
+      // 重新加载配置以获取新创建的 agent
+      cfg = core.config.loadConfig() as OpenClawConfig;
+      console.log(`[atypica-web] Agent "${normalizedAgentId}" created successfully`);
+    }
+
+    // 使用 SDK routing 获取 sessionKey（使用创建的 agent）
     const peerId = `${userId}:${projectId}`;
     const route = core.channel.routing.resolveAgentRoute({
       cfg,
@@ -161,7 +286,6 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       peer: { kind: "dm", id: peerId },
     });
 
-    console.log(`[atypica-web] Received message from ${userId}:${projectId}`);
     console.log(`[atypica-web] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
 
     // 立即返回 202 Accepted
