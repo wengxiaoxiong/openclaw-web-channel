@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { OpenClawConfig, OpenClawPluginHttpRouteHandler } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, OpenClawPluginHttpRouteHandler, AgentBinding } from "openclaw/plugin-sdk";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -51,11 +51,9 @@ async function createAgent(options: {
   ];
 
   // 如果指定了 bind，添加 --bind 参数
-  // 默认绑定到 atypica-web channel
+  // 如果不指定，则不创建 channel-level binding（我们会手动添加 peer-level binding）
   if (bind) {
     args.push("--bind", bind);
-  } else {
-    args.push("--bind", "atypica-web");
   }
 
   console.log(`[atypica-web] Creating agent: openclaw ${args.join(" ")}`);
@@ -246,6 +244,8 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     console.log(`[atypica-web] Received message from ${userId}:${projectId}`);
     console.log(`[atypica-web] Using agentId: ${normalizedAgentId}`);
 
+    const peerId = `${userId}:${projectId}`;
+    
     // 检查 agent 是否存在，如果不存在则创建
     if (!agentExists(cfg, normalizedAgentId)) {
       console.log(`[atypica-web] Agent "${normalizedAgentId}" does not exist, creating...`);
@@ -253,10 +253,11 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       // 构建 workspace 路径：~/.openclaw/users/<userId>
       const workspace = path.join(os.homedir(), ".openclaw", "users", userId);
       
+      // 不创建 channel-level binding，我们稍后会添加 peer-level binding
       const createResult = await createAgent({
         agentId: normalizedAgentId,
         workspace,
-        bind: "atypica-web",
+        bind: undefined, // 不创建 channel binding
       });
 
       if (!createResult.ok) {
@@ -277,14 +278,33 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       console.log(`[atypica-web] Agent "${normalizedAgentId}" created successfully`);
     }
 
-    // 使用 SDK routing 获取 sessionKey（使用创建的 agent）
-    const peerId = `${userId}:${projectId}`;
-    const route = core.channel.routing.resolveAgentRoute({
+    // 使用 SDK routing 获取 sessionKey（检查当前路由）
+    let route = core.channel.routing.resolveAgentRoute({
       cfg,
       channel: "atypica-web",
       accountId: resolvedAccountId,
       peer: { kind: "dm", id: peerId },
     });
+
+    // 检查是否需要添加 peer-level binding
+    // 如果路由到的 agent 不是我们期望的，或者不是通过 peer binding 路由的，则添加 peer binding
+    if (route.agentId !== normalizedAgentId || route.matchedBy !== "binding.peer") {
+      console.log(`[atypica-web] Adding peer binding for ${peerId} to agent ${normalizedAgentId}`);
+      cfg = await addPeerBinding(cfg, {
+        agentId: normalizedAgentId,
+        channel: "atypica-web",
+        accountId: resolvedAccountId,
+        peer: { kind: "dm", id: peerId },
+      });
+      
+      // 重新解析路由
+      route = core.channel.routing.resolveAgentRoute({
+        cfg,
+        channel: "atypica-web",
+        accountId: resolvedAccountId,
+        peer: { kind: "dm", id: peerId },
+      });
+    }
 
     console.log(`[atypica-web] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
 
@@ -324,6 +344,59 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     );
   }
 };
+
+/**
+ * 添加 peer-level binding 到配置
+ */
+async function addPeerBinding(
+  cfg: OpenClawConfig,
+  binding: {
+    agentId: string;
+    channel: string;
+    accountId: string;
+    peer: { kind: "dm" | "group" | "channel"; id: string };
+  },
+): Promise<OpenClawConfig> {
+  // 检查 binding 是否已存在
+  const existingBindings = cfg.bindings ?? [];
+  const bindingKey = `${binding.channel}|${binding.accountId}|${binding.peer.kind}|${binding.peer.id}`;
+  const exists = existingBindings.some((b) => {
+    const key = `${b.match.channel}|${b.match.accountId || ""}|${b.match.peer?.kind || ""}|${b.match.peer?.id || ""}`;
+    return key === bindingKey;
+  });
+
+  if (exists) {
+    console.log(`[atypica-web] Peer binding already exists for ${binding.peer.id}`);
+    return cfg;
+  }
+
+  // 添加新的 binding
+  const newBinding: AgentBinding = {
+    agentId: binding.agentId,
+    match: {
+      channel: binding.channel,
+      accountId: binding.accountId,
+      peer: binding.peer,
+    },
+  };
+
+  const updatedConfig: OpenClawConfig = {
+    ...cfg,
+    bindings: [...existingBindings, newBinding],
+  };
+
+  // 使用 SDK 的 writeConfigFile 写入配置文件
+  const core = getAtypicaRuntime();
+  try {
+    await core.config.writeConfigFile(updatedConfig);
+    console.log(`[atypica-web] Added peer binding for ${binding.peer.id} to agent ${binding.agentId}`);
+    return updatedConfig;
+  } catch (err) {
+    console.error(`[atypica-web] Failed to write config file:`, err);
+    // 返回更新后的配置（即使写入失败，内存中的配置也是正确的）
+    return updatedConfig;
+  }
+}
 
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
