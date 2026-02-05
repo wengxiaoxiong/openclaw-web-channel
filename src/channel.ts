@@ -107,44 +107,9 @@ export const atypicaWebChannelPlugin: ChannelPlugin = {
   outbound: {
     deliveryMode: "direct",
     sendText: async ({ to, text, accountId }) => {
-      const [userId, projectId] = to.split(":");
-      if (!userId || !projectId) {
-        console.error("[atypica-web] Invalid 'to' format, expected 'userId:projectId':", to);
-        return { ok: false, error: "Invalid recipient format" };
-      }
-
-      console.log(`[atypica-web] Pushing reply to user ${userId}, project ${projectId}`);
-
-      const pushUrl = process.env.ATYPICA_WEBHOOK_URL ?? 
-        (accountId ? process.env[`ATYPICA_WEBHOOK_URL_${accountId.toUpperCase()}`] : undefined);
-        
-      if (pushUrl) {
-        try {
-          const response = await fetch(pushUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${process.env.ATYPICA_API_SECRET}`,
-            },
-            body: JSON.stringify({
-              userId,
-              projectId,
-              text,
-              type: "assistant",
-              timestamp: Date.now(),
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-          }
-        } catch (err) {
-          console.error("[atypica-web] Failed to push to web service:", err);
-        }
-      } else {
-        console.warn("[atypica-web] ATYPICA_WEBHOOK_URL not set, skipping push.");
-      }
-
+      // CLI 模式下，回复由 inbound 处理器捕获并推送
+      // 这里只记录日志作为备用
+      console.log(`[atypica-web] sendText called (CLI mode, no-op): to=${to}, text=${text.substring(0, 50)}...`);
       return { ok: true, channel: "atypica-web" };
     },
   },

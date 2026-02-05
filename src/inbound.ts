@@ -1,21 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawConfig, OpenClawPluginHttpRouteHandler } from "openclaw/plugin-sdk";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { resolveAtypicaWebConfig, resolveDefaultAtypicaWebAccountId } from "./config.js";
+import { spawn } from "node:child_process";
+import { resolveDefaultAtypicaWebAccountId } from "./config.js";
 import { pushAtypicaReply } from "./outbound.js";
 import { getAtypicaRuntime } from "./runtime.js";
-
-// 内存消息队列
-const messageQueue: Array<{
-  userId: string;
-  projectId: string;
-  message: string;
-  timestamp: number;
-  accountId: string;
-}> = [];
-
-let isProcessing = false;
 
 type InboundPayload = {
   userId?: string;
@@ -26,127 +14,101 @@ type InboundPayload = {
   accountId?: string;
 };
 
-export function startMessageProcessor(): void {
-  if (isProcessing) return;
-  isProcessing = true;
-  
-  // 每 100ms 检查一次队列
-  setInterval(async () => {
-    if (messageQueue.length === 0) return;
-    
-    const msg = messageQueue.shift();
-    if (!msg) return;
-    
-    try {
-      await processMessage(msg);
-    } catch (err) {
-      console.error("[atypica-web] Failed to process message:", err);
-    }
-  }, 100);
+/**
+ * CLI 调用函数 - 调用 openclaw agent 命令
+ */
+async function callOpenClawCLI(options: {
+  message: string;
+  sessionKey?: string;
+  agentId?: string;
+  timeout?: number;
+}): Promise<string> {
+  const args = ["agent", "--message", options.message, "--thinking", "low"];
+
+  if (options.sessionKey) {
+    // 注意：CLI 参数是 --session-id 而不是 --session-key
+    args.push("--session-id", options.sessionKey);
+  } else if (options.agentId) {
+    args.push("--agent", options.agentId);
+  }
+
+  console.log(`[atypica-web] Executing: openclaw ${args.join(" ")}`);
+
+  const proc = spawn("openclaw", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0) {
+        const trimmed = stdout.trim();
+        resolve(trimmed || "[Empty response]");
+      } else {
+        reject(new Error(`CLI exited with code ${code}: ${stderr}`));
+      }
+    });
+
+    // 超时处理
+    const timeout = setTimeout(() => {
+      proc.kill("SIGTERM");
+      reject(new Error(`CLI timeout after ${options.timeout}ms`));
+    }, options.timeout || 120000);
+
+    proc.on("close", () => clearTimeout(timeout));
+  });
 }
 
-async function processMessage(msg: {
+/**
+ * 异步处理消息 - 调用 CLI 并推送到 webhook
+ */
+async function processMessageAsync(params: {
   userId: string;
   projectId: string;
   message: string;
-  timestamp: number;
   accountId: string;
+  sessionKey: string;
 }): Promise<void> {
-  const core = getAtypicaRuntime();
-  const cfg = core.config.loadConfig() as OpenClawConfig;
-  
-  const peerId = `${msg.userId}:${msg.projectId}`;
-  const route = core.channel.routing.resolveAgentRoute({
-    cfg,
-    channel: "atypica-web",
-    accountId: msg.accountId,
-    peer: { kind: "dm", id: peerId },
-  });
+  console.log(`[atypica-web] Processing message for ${params.userId}:${params.projectId}`);
 
-  const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
-    agentId: route.agentId,
-  });
-  const storePath = path.dirname(sessionsFilePath);
-  
-  // 读取 session 历史
-  const storeFile = path.join(storePath, "session-store.json");
-  let sessionData: any = {};
-  if (fs.existsSync(storeFile)) {
-    try {
-      sessionData = JSON.parse(fs.readFileSync(storeFile, "utf-8"));
-    } catch {}
-  }
-  
-  const entry = sessionData[route.sessionKey];
-  if (!entry?.sessionId) {
-    console.log("[atypica-web] No session found for", route.sessionKey);
-    return;
-  }
-
-  // 读取 transcript 文件
-  const transcriptPath = path.join(storePath, `${entry.sessionId}.jsonl`);
-  let messages: any[] = [];
   try {
-    if (fs.existsSync(transcriptPath)) {
-      const content = fs.readFileSync(transcriptPath, "utf-8");
-      messages = content
-        .split("\n")
-        .filter(line => line.trim())
-        .map(line => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
-    }
-  } catch {}
+    // 调用 CLI
+    const reply = await callOpenClawCLI({
+      message: params.message,
+      sessionKey: params.sessionKey,
+      timeout: 120000,
+    });
 
-  // 找到最后一条用户消息
-  const lastUserMessage = messages.filter(m => m.role === "user").pop();
-  if (!lastUserMessage) {
-    console.log("[atypica-web] No user message found in transcript");
-    return;
-  }
+    console.log(`[atypica-web] Got reply: ${reply.substring(0, 100)}...`);
 
-  // 检查是否已经处理过
-  const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
-  if (lastAssistantMessage && lastAssistantMessage.timestamp > lastUserMessage.timestamp) {
-    console.log("[atypica-web] Message already processed");
-    return;
-  }
+    // 推送到 webhook
+    const core = getAtypicaRuntime();
+    const cfg = core.config.loadConfig() as OpenClawConfig;
 
-  console.log(`[atypica-web] Processing message: ${lastUserMessage.content.substring(0, 50)}...`);
-
-  // TODO: 这里需要调用 OpenClaw 的 agent 来生成回复
-  // 由于 SDK 限制，目前只能记录消息，无法直接触发 agent
-  //  workaround: 使用系统命令或者等待 OpenClaw 提供公共 API
-  
-  // 临时方案：直接推送一个测试回复
-  if (process.env.ATYPICA_AUTO_REPLY === "true") {
-    const testReply = `[Auto-reply] Received your message: "${lastUserMessage.content.substring(0, 30)}..."`;
-    
-    // 写入 assistant 消息到 transcript
-    const assistantEntry = {
-      type: "message",
-      role: "assistant",
-      content: testReply,
-      timestamp: Date.now(),
-    };
-    fs.appendFileSync(transcriptPath, JSON.stringify(assistantEntry) + "\n");
-    
-    // 推送回复
     await pushAtypicaReply({
       cfg,
-      accountId: msg.accountId,
+      accountId: params.accountId,
       payload: {
-        userId: msg.userId,
-        projectId: msg.projectId,
-        text: testReply,
+        userId: params.userId,
+        projectId: params.projectId,
+        text: reply,
       },
       logger: console,
     });
+
+    console.log(`[atypica-web] Successfully pushed reply to webhook`);
+  } catch (err) {
+    console.error(`[atypica-web] Failed to process message:`, err);
   }
 }
 
@@ -184,15 +146,8 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     const core = getAtypicaRuntime();
     const cfg = core.config.loadConfig() as OpenClawConfig;
     const resolvedAccountId = payload.accountId?.trim() || resolveDefaultAtypicaWebAccountId(cfg);
-    const accountConfig = resolveAtypicaWebConfig(cfg, resolvedAccountId);
 
-    if (accountConfig.enabled === false) {
-      res.statusCode = 403;
-      res.end(JSON.stringify({ ok: false, error: "Account disabled" }));
-      return;
-    }
-
-    // 记录消息到 session 文件
+    // 使用 SDK routing 获取 sessionKey
     const peerId = `${userId}:${projectId}`;
     const route = core.channel.routing.resolveAgentRoute({
       cfg,
@@ -201,75 +156,31 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       peer: { kind: "dm", id: peerId },
     });
 
-    // resolveStorePath 返回的是 sessions.json 文件路径，我们需要它的目录
-    const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
-      agentId: route.agentId,
-    });
-    const storePath = path.dirname(sessionsFilePath);
+    console.log(`[atypica-web] Received message from ${userId}:${projectId}`);
+    console.log(`[atypica-web] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
 
-    // 确保目录存在
-    if (!fs.existsSync(storePath)) {
-      fs.mkdirSync(storePath, { recursive: true });
-    }
-
-    // 读取或创建 session entry (session-store.json 和 sessions.json 在同一个目录)
-    const storeFile = path.join(storePath, "session-store.json");
-    let store: Record<string, any> = {};
-    if (fs.existsSync(storeFile)) {
-      try {
-        store = JSON.parse(fs.readFileSync(storeFile, "utf-8"));
-      } catch {}
-    }
-
-    let entry = store[route.sessionKey];
-    if (!entry) {
-      entry = {
-        sessionId: crypto.randomUUID(),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-    } else {
-      entry.updatedAt = Date.now();
-    }
-
-    store[route.sessionKey] = entry;
-    fs.writeFileSync(storeFile, JSON.stringify(store, null, 2));
-
-    // 写入消息到 transcript
-    const transcriptPath = path.join(storePath, `${entry.sessionId}.jsonl`);
-    const msgEntry = {
-      type: "message",
-      role: "user",
-      content: message,
-      timestamp: payload.timestamp ?? Date.now(),
-      metadata: {
-        userId,
-        projectId,
-        sessionKey: route.sessionKey,
-        channel: "atypica-web",
-      },
-    };
-    fs.appendFileSync(transcriptPath, JSON.stringify(msgEntry) + "\n");
-
-    // 将消息加入处理队列
-    messageQueue.push({
-      userId,
-      projectId,
-      message,
-      timestamp: Date.now(),
-      accountId: resolvedAccountId,
-    });
-
+    // 立即返回 202 Accepted
     res.statusCode = 202;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: true,
-        message: "Message received and queued for processing",
+        message: "Message queued for processing",
         sessionKey: route.sessionKey,
         agentId: route.agentId,
       }),
     );
+
+    // 异步处理（不等待）
+    processMessageAsync({
+      userId,
+      projectId,
+      message,
+      accountId: resolvedAccountId,
+      sessionKey: route.sessionKey,
+    }).catch((err) => {
+      console.error("[atypica-web] Async processing failed:", err);
+    });
   } catch (err: unknown) {
     console.error("[atypica-web] Inbound handler error:", err);
     res.statusCode = 500;
