@@ -42,14 +42,13 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       peer: { kind: "dm", id: `${userId}:${projectId}` },
     });
 
+    // 根据用户需求，路径格式是：~/.openclaw/agents/<agentId>/sessions/sessions.json
     const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
-    // sessionsFilePath 是 sessions.json 的完整路径
-    // 例如: ~/.openclaw/agents/main/sessions.json
-    // storePath 应该是 sessions.json 所在的目录
-    const storePath = path.dirname(sessionsFilePath);
-    // storeFile 就是 sessions.json
+    // sessionsFilePath 应该是 ~/.openclaw/agents/<agentId>/sessions/sessions.json
+    // sessionsDir 是 sessions.json 所在的目录（即 sessions 目录）
+    const sessionsDir = path.dirname(sessionsFilePath);
     const storeFile = sessionsFilePath;
 
     let store: SessionStore = {};
@@ -69,7 +68,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       return;
     }
 
-    // session transcript 文件在 sessions 目录下
+    // session transcript 文件路径：sessions/{sessionId}.jsonl
     // 如果 entry.sessionFile 存在且是绝对路径，使用它；否则使用默认路径
     let sessionFile: string;
     if (entry.sessionFile) {
@@ -77,23 +76,21 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
         sessionFile = entry.sessionFile;
       } else {
         // 相对于 sessions 目录
-        const sessionsDir = path.join(storePath, "sessions");
         sessionFile = path.join(sessionsDir, entry.sessionFile);
       }
     } else {
       // 默认路径：sessions/{sessionId}.jsonl
-      const sessionsDir = path.join(storePath, "sessions");
       sessionFile = path.join(sessionsDir, `${entry.sessionId}.jsonl`);
     }
 
-    // 解析消息，参考 openclaw-api 的实现
+    // 解析消息，根据用户需求：找到最后一次 user 消息，返回从那之后的所有消息
     interface HistoryMessage {
       role: "user" | "assistant" | "toolResult";
       content: string;
       timestamp?: string;
     }
 
-    const messages: HistoryMessage[] = [];
+    const allMessages: HistoryMessage[] = [];
     if (fs.existsSync(sessionFile)) {
       const content = fs.readFileSync(sessionFile, "utf-8");
       const lines = content.split("\n").filter((line) => line.trim());
@@ -133,7 +130,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
               }
 
               if (content) {
-                messages.push({
+                allMessages.push({
                   role: role as "user" | "assistant" | "toolResult",
                   content,
                   timestamp: entry.timestamp as string | undefined,
@@ -148,7 +145,22 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       }
     }
 
-    const sliced = messages.slice(-limit);
+    // 找到最后一次 user 消息的索引
+    let lastUserIndex = -1;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      if (allMessages[i].role === "user") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+
+    // 返回最后一次 user 消息之后的所有消息
+    // 如果没有找到 user 消息，返回所有消息
+    const messages =
+      lastUserIndex >= 0 ? allMessages.slice(lastUserIndex + 1) : allMessages;
+
+    // 如果指定了 limit，只返回最后 limit 条
+    const sliced = limit > 0 ? messages.slice(-limit) : messages;
 
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
