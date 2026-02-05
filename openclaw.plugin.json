@@ -18,6 +18,9 @@
       "apiSecret": {
         "type": "string"
       },
+      "inboundApiKey": {
+        "type": "string"
+      },
       "allowFrom": {
         "type": "array",
         "items": {
@@ -33,6 +36,7 @@
             "name": { "type": "string" },
             "webhookUrl": { "type": "string" },
             "apiSecret": { "type": "string" },
+            "inboundApiKey": { "type": "string" },
             "allowFrom": {
               "type": "array",
               "items": { "type": "string" }
@@ -60,6 +64,11 @@
       "label": "API Secret",
       "sensitive": true,
       "help": "Secret key for webhook authorization"
+    },
+    "inboundApiKey": {
+      "label": "Inbound API Key",
+      "sensitive": true,
+      "help": "API key for authenticating inbound requests (sent in Authorization header)"
     },
     "allowFrom": {
       "label": "Allowed Senders",

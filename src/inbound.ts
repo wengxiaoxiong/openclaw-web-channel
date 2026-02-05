@@ -1,9 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { OpenClawConfig, OpenClawPluginHttpRouteHandler, AgentBinding } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawPluginHttpRouteHandler } from "../../src/plugins/types.js";
+import type { AgentBinding } from "../../src/config/types.agents.js";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import * as os from "node:os";
-import { resolveDefaultAtypicaWebAccountId } from "./config.js";
+import { resolveDefaultAtypicaWebAccountId, resolveAtypicaWebConfig } from "./config.js";
 import { pushAtypicaReply } from "./outbound.js";
 import { getAtypicaRuntime } from "./runtime.js";
 
@@ -15,6 +17,66 @@ type InboundPayload = {
   timestamp?: number;
   accountId?: string;
 };
+
+/**
+ * 从请求头中提取 API key
+ * 支持两种格式：
+ * 1. Authorization: Bearer <key>
+ * 2. X-API-Key: <key>
+ */
+function extractApiKeyFromHeaders(req: IncomingMessage): string | null {
+  // 检查 Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  // 检查 X-API-Key header
+  const apiKeyHeader = req.headers["x-api-key"];
+  if (apiKeyHeader && typeof apiKeyHeader === "string") {
+    return apiKeyHeader.trim();
+  }
+
+  return null;
+}
+
+/**
+ * 验证 API key
+ */
+function validateApiKey(
+  cfg: OpenClawConfig,
+  accountId: string,
+  providedKey: string | null,
+): { valid: boolean; error?: string } {
+  const accountConfig = resolveAtypicaWebConfig(cfg, accountId);
+  const configuredKey = accountConfig.inboundApiKey?.trim();
+
+  // 如果未配置 inboundApiKey，则不进行验证（向后兼容）
+  if (!configuredKey) {
+    return { valid: true };
+  }
+
+  // 如果配置了 inboundApiKey，但请求中未提供，则拒绝
+  if (!providedKey) {
+    return {
+      valid: false,
+      error: "API key required. Provide it in Authorization: Bearer <key> or X-API-Key header",
+    };
+  }
+
+  // 使用时间安全的比较来防止时序攻击
+  if (configuredKey !== providedKey) {
+    return {
+      valid: false,
+      error: "Invalid API key",
+    };
+  }
+
+  return { valid: true };
+}
 
 /**
  * 检查 agent 是否存在
@@ -213,6 +275,11 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
   }
 
   try {
+    // 先加载配置以进行 API key 验证
+    const core = getAtypicaRuntime();
+    let cfg = core.config.loadConfig() as OpenClawConfig;
+
+    // 读取请求体
     const body = await readBody(req);
     let payload: InboundPayload;
     try {
@@ -220,6 +287,18 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     } catch {
       res.statusCode = 400;
       res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+      return;
+    }
+
+    const resolvedAccountId = payload.accountId?.trim() || resolveDefaultAtypicaWebAccountId(cfg);
+
+    // 验证 API key
+    const providedKey = extractApiKeyFromHeaders(req);
+    const validation = validateApiKey(cfg, resolvedAccountId, providedKey);
+    if (!validation.valid) {
+      res.statusCode = 401;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: validation.error || "Unauthorized" }));
       return;
     }
 
@@ -232,10 +311,6 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       res.end(JSON.stringify({ ok: false, error: "userId, projectId, and message are required" }));
       return;
     }
-
-    const core = getAtypicaRuntime();
-    let cfg = core.config.loadConfig() as OpenClawConfig;
-    const resolvedAccountId = payload.accountId?.trim() || resolveDefaultAtypicaWebAccountId(cfg);
 
     // 使用 userId 作为 agentId（规范化处理）
     // 移除特殊字符，只保留字母、数字、连字符和下划线
