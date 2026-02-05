@@ -25,11 +25,14 @@ async function callOpenClawCLI(options: {
 }): Promise<string> {
   const args = ["agent", "--message", options.message, "--thinking", "low"];
 
+  // 同时传递 agentId 和 sessionKey（如果都有的话）
+  // 这样可以确保 CLI 正确处理 session
+  if (options.agentId) {
+    args.push("--agent", options.agentId);
+  }
   if (options.sessionKey) {
     // 注意：CLI 参数是 --session-id 而不是 --session-key
     args.push("--session-id", options.sessionKey);
-  } else if (options.agentId) {
-    args.push("--agent", options.agentId);
   }
 
   console.log(`[atypica-web] Executing: openclaw ${args.join(" ")}`);
@@ -77,6 +80,7 @@ async function processMessageAsync(params: {
   projectId: string;
   message: string;
   accountId: string;
+  agentId: string;
   sessionKey: string;
 }): Promise<void> {
   console.log(`[atypica-web] Processing message for ${params.userId}:${params.projectId}`);
@@ -85,6 +89,7 @@ async function processMessageAsync(params: {
     // 调用 CLI
     const reply = await callOpenClawCLI({
       message: params.message,
+      agentId: params.agentId,
       sessionKey: params.sessionKey,
       timeout: 120000,
     });
@@ -177,6 +182,7 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       projectId,
       message,
       accountId: resolvedAccountId,
+      agentId: route.agentId,
       sessionKey: route.sessionKey,
     }).catch((err) => {
       console.error("[atypica-web] Async processing failed:", err);

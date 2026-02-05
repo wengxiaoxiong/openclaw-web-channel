@@ -45,8 +45,12 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
     const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
+    // sessionsFilePath 是 sessions.json 的完整路径
+    // 例如: ~/.openclaw/agents/main/sessions.json
+    // storePath 应该是 sessions.json 所在的目录
     const storePath = path.dirname(sessionsFilePath);
-    const storeFile = path.join(storePath, "session-store.json");
+    // storeFile 就是 sessions.json
+    const storeFile = sessionsFilePath;
 
     let store: SessionStore = {};
     if (fs.existsSync(storeFile)) {
@@ -65,23 +69,83 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       return;
     }
 
-    const sessionFile = path.join(storePath, `${entry.sessionId}.jsonl`);
+    // session transcript 文件在 sessions 目录下
+    // 如果 entry.sessionFile 存在且是绝对路径，使用它；否则使用默认路径
+    let sessionFile: string;
+    if (entry.sessionFile) {
+      if (path.isAbsolute(entry.sessionFile)) {
+        sessionFile = entry.sessionFile;
+      } else {
+        // 相对于 sessions 目录
+        const sessionsDir = path.join(storePath, "sessions");
+        sessionFile = path.join(sessionsDir, entry.sessionFile);
+      }
+    } else {
+      // 默认路径：sessions/{sessionId}.jsonl
+      const sessionsDir = path.join(storePath, "sessions");
+      sessionFile = path.join(sessionsDir, `${entry.sessionId}.jsonl`);
+    }
 
-    let messages: Array<Record<string, unknown>> = [];
+    // 解析消息，参考 openclaw-api 的实现
+    interface HistoryMessage {
+      role: "user" | "assistant" | "toolResult";
+      content: string;
+      timestamp?: string;
+    }
+
+    const messages: HistoryMessage[] = [];
     if (fs.existsSync(sessionFile)) {
       const content = fs.readFileSync(sessionFile, "utf-8");
-      messages = content
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => {
-          try {
-            return JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            return null;
+      const lines = content.split("\n").filter((line) => line.trim());
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as Record<string, unknown>;
+
+          // 跳过 session 元数据
+          if (entry.type === "session") {
+            continue;
           }
-        })
-        .filter((line): line is Record<string, unknown> => Boolean(line))
-        .filter((line) => line.type !== "session");
+
+          // 提取消息内容
+          if (entry.message && typeof entry.message === "object") {
+            const msg = entry.message as Record<string, unknown>;
+            const role = msg.role as string;
+
+            if (role === "user" || role === "assistant" || role === "toolResult") {
+              // 提取文本内容
+              let content = "";
+              if (Array.isArray(msg.content)) {
+                content = msg.content
+                  .map((item) => {
+                    if (typeof item === "object" && item !== null) {
+                      const itemObj = item as Record<string, unknown>;
+                      if (itemObj.type === "text" && typeof itemObj.text === "string") {
+                        return itemObj.text;
+                      }
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join("\n");
+              } else if (typeof msg.content === "string") {
+                content = msg.content;
+              }
+
+              if (content) {
+                messages.push({
+                  role: role as "user" | "assistant" | "toolResult",
+                  content,
+                  timestamp: entry.timestamp as string | undefined,
+                });
+              }
+            }
+          }
+        } catch {
+          // 忽略无效的 JSON 行
+          continue;
+        }
+      }
     }
 
     const sliced = messages.slice(-limit);
