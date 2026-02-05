@@ -1,0 +1,9 @@
+{
+  "id": "web-channel",
+  "channels": ["atypica-web"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

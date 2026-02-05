@@ -1,0 +1,24 @@
+{
+  "name": "web-channel",
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "atypica-web",
+      "label": "Atypica Web",
+      "selectionLabel": "Atypica Web (API)",
+      "docsPath": "/channels/atypica-web",
+      "blurb": "Custom web channel for Atypica."
+    },
+    "install": {
+      "localPath": "atypica-channel",
+      "defaultChoice": "local"
+    }
+  }
+}
