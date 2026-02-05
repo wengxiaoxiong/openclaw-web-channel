@@ -42,14 +42,16 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       peer: { kind: "dm", id: `${userId}:${projectId}` },
     });
 
-    const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
+    const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
+    const storePath = path.dirname(sessionsFilePath);
+    const storeFile = path.join(storePath, "session-store.json");
 
     let store: SessionStore = {};
-    if (fs.existsSync(storePath)) {
+    if (fs.existsSync(storeFile)) {
       try {
-        store = JSON.parse(fs.readFileSync(storePath, "utf-8")) as SessionStore;
+        store = JSON.parse(fs.readFileSync(storeFile, "utf-8")) as SessionStore;
       } catch {
         store = {};
       }
@@ -63,8 +65,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       return;
     }
 
-    const sessionFile =
-      entry.sessionFile?.trim() || path.join(path.dirname(storePath), `${entry.sessionId}.jsonl`);
+    const sessionFile = path.join(storePath, `${entry.sessionId}.jsonl`);
 
     let messages: Array<Record<string, unknown>> = [];
     if (fs.existsSync(sessionFile)) {

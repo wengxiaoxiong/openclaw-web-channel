@@ -63,9 +63,10 @@ async function processMessage(msg: {
     peer: { kind: "dm", id: peerId },
   });
 
-  const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
+  const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
+  const storePath = path.dirname(sessionsFilePath);
   
   // 读取 session 历史
   const storeFile = path.join(storePath, "session-store.json");
@@ -83,7 +84,7 @@ async function processMessage(msg: {
   }
 
   // 读取 transcript 文件
-  const transcriptPath = path.join(storePath, "sessions", `${entry.sessionId}.jsonl`);
+  const transcriptPath = path.join(storePath, `${entry.sessionId}.jsonl`);
   let messages: any[] = [];
   try {
     if (fs.existsSync(transcriptPath)) {
@@ -200,17 +201,18 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       peer: { kind: "dm", id: peerId },
     });
 
-    const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
+    // resolveStorePath 返回的是 sessions.json 文件路径，我们需要它的目录
+    const sessionsFilePath = core.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
+    const storePath = path.dirname(sessionsFilePath);
 
     // 确保目录存在
-    const sessionDir = path.join(storePath, "sessions");
-    if (!fs.existsSync(sessionDir)) {
-      fs.mkdirSync(sessionDir, { recursive: true });
+    if (!fs.existsSync(storePath)) {
+      fs.mkdirSync(storePath, { recursive: true });
     }
 
-    // 读取或创建 session entry
+    // 读取或创建 session entry (session-store.json 和 sessions.json 在同一个目录)
     const storeFile = path.join(storePath, "session-store.json");
     let store: Record<string, any> = {};
     if (fs.existsSync(storeFile)) {
@@ -234,7 +236,7 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     fs.writeFileSync(storeFile, JSON.stringify(store, null, 2));
 
     // 写入消息到 transcript
-    const transcriptPath = path.join(sessionDir, `${entry.sessionId}.jsonl`);
+    const transcriptPath = path.join(storePath, `${entry.sessionId}.jsonl`);
     const msgEntry = {
       type: "message",
       role: "user",
