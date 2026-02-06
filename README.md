@@ -14,7 +14,37 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 - macOS/Linux: `/Users/username/projects/openclaw/atypica-channel`
 - Windows: `C:\Users\username\projects\openclaw\atypica-channel`
 
+**注意：** 安装后，插件会自动添加到配置文件的 `plugins.load.paths` 中。如果之前有旧的 `web-channel` 插件，请确保更新路径指向新的 `atypica-channel` 目录。
+
 ## 2. 配置
+
+### 2.1 插件配置
+
+安装插件后，配置文件中的 `plugins.load.paths` 会自动更新。确保路径正确：
+
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": [
+        "/absolute/path/to/atypica-channel"
+      ]
+    },
+    "entries": {
+      "web-channel": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+**重要说明：**
+- 插件 ID 是 `web-channel`（在 `plugins.entries` 中）
+- Channel ID 是 `atypica-web`（在 `channels` 中）
+- 这两个是不同的概念：插件是代码包，Channel 是消息渠道配置
+
+### 2.2 Channel 配置
 
 在 `~/.openclaw/openclaw.json` 中启用 channel（或通过 OpenClaw dashboard 配置）：
 
@@ -96,6 +126,10 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 
 发送消息到 OpenClaw Agent。
 
+`responseMode` 调用方式说明：
+- `async`（默认）：接口立即返回 `202 Accepted`，后台处理后通过 webhook 推送回复。
+- `sync`：接口阻塞等待 Agent 处理完成，直接返回 `200 OK` 和 `reply`。
+
 **请求**
 
 - **URL**: `POST http://<gateway-host>:18789/atypica/inbound`
@@ -109,23 +143,37 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
     "userId": "user_123",
     "projectId": "project_abc",
     "message": "你好，OpenClaw！",
-    "accountId": "default"
+    "accountId": "default",
+    "responseMode": "async"
   }
   ```
   - `userId` (string, 必填): 用户 ID
   - `projectId` (string, 必填): 项目 ID
   - `message` (string, 必填): 消息内容
   - `accountId` (string, 可选): 账户 ID，默认为 `default`
+  - `responseMode` (string, 可选): 响应模式，可选 `async` 或 `sync`，默认为 `async`
 
 **响应**
 
-- **成功** (`202 Accepted`):
+- **成功（异步）** (`202 Accepted`, `responseMode=async`):
   ```json
   {
     "ok": true,
+    "mode": "async",
     "message": "Message queued for processing",
     "sessionKey": "agent:user_123:project_abc",
     "agentId": "user_123"
+  }
+  ```
+
+- **成功（同步）** (`200 OK`, `responseMode=sync`):
+  ```json
+  {
+    "ok": true,
+    "mode": "sync",
+    "sessionKey": "agent:user_123:project_abc",
+    "agentId": "user_123",
+    "reply": "你好！我是你的 AI 助手。"
   }
   ```
 
@@ -166,7 +214,8 @@ headers = {
 payload = {
     "userId": "user_123",
     "projectId": "project_abc",
-    "message": "你好！"
+    "message": "你好！",
+    "responseMode": "async"  # 可选: async(默认) | sync
 }
 
 response = requests.post(url, json=payload, headers=headers)
@@ -313,25 +362,92 @@ app.listen(3000);
    - 自动创建或使用现有的 Agent（基于 `userId`）
    - 自动管理 Session（基于 `userId:projectId`）
 
-3. **OpenClaw 推送回复** → 调用你的 Webhook (`POST <webhookUrl>`)
+3. **OpenClaw 推送回复（仅异步模式）** → 调用你的 Webhook (`POST <webhookUrl>`)
    - 如果配置了 `apiSecret`，会在请求头中包含认证信息
    - 你的服务接收回复并处理
 
 4. **查询历史** → 调用消息历史接口 (`GET /atypica/messages`)
    - 可以随时查询指定用户和项目的消息历史
 
-## 6. 注意事项
+## 6. 核心概念（重要）
+
+- **一个 Agent 就是一个 User**：系统将 `userId` 直接映射为 Agent 身份（会做规范化处理）。
+- **首次消息自动建 Agent**：当该 `userId` 对应 Agent 不存在时，会自动创建。
+- **会话按 User + Project 维度隔离**：同一用户的不同项目使用不同会话，`sessionKey` 形如 `agent:<agentId>:<projectId>`。
+
+## 7. 注意事项
 
 - **Agent 自动创建**: 如果指定的 `userId` 对应的 Agent 不存在，系统会自动创建
 - **Session 管理**: Session Key 格式为 `agent:<agentId>:<projectId>`
-- **异步处理**: Inbound 接口立即返回 `202 Accepted`，实际处理是异步的
+- **响应模式**:
+  - `async`（默认）: Inbound 接口立即返回 `202 Accepted`，后续异步处理并推送 webhook
+  - `sync`: Inbound 接口阻塞等待 Agent 回复，返回 `200 OK` + `reply`（不再额外推送 webhook）
 - **API Key 安全**: 
   - `inboundApiKey`: 用于认证客户端发送的请求
   - `apiSecret`: 用于认证 OpenClaw 发送的 Webhook 请求
   - 建议使用不同的密钥，并妥善保管
 - **向后兼容**: 如果未配置 `inboundApiKey`，Inbound 接口不会进行认证（但建议在生产环境中配置）
 
-## 7. 测试
+## 8. 常见问题
+
+### 7.1 为什么配置文件中没有 `atypica-web` channel？
+
+**原因：** Channel 配置需要手动添加，插件安装不会自动创建 channel 配置。
+
+**解决方法：**
+1. 确保插件已正确安装（检查 `plugins.load.paths` 和 `plugins.entries.web-channel.enabled`）
+2. 手动添加 `channels.atypica-web` 配置（见上面的配置示例）
+3. 重启 OpenClaw Gateway
+
+### 7.2 插件和 Channel 的区别
+
+- **插件（Plugin）**: 代码包，通过 `plugins.load.paths` 加载，在 `plugins.entries` 中启用
+- **Channel**: 消息渠道配置，在 `channels.<channel-id>` 中配置
+- 一个插件可以注册多个 channel，但 `atypica-web` 插件只注册一个 `atypica-web` channel
+
+### 7.3 如何验证插件是否正确加载？
+
+运行以下命令检查已注册的 channels：
+
+```bash
+openclaw channels list
+```
+
+如果看到 `atypica-web` 在列表中，说明插件已正确加载。
+
+### 7.4 配置示例（完整）
+
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": [
+        "/Users/open/projects/openclaw/atypica-channel"
+      ]
+    },
+    "entries": {
+      "web-channel": {
+        "enabled": true
+      }
+    }
+  },
+  "channels": {
+    "atypica-web": {
+      "enabled": true,
+      "webhookUrl": "https://your-app.com/webhooks/openclaw",
+      "apiSecret": "your-webhook-secret-key",
+      "inboundApiKey": "your-inbound-api-key",
+      "accounts": {
+        "default": {
+          "enabled": true
+        }
+      }
+    }
+  }
+}
+```
+
+## 9. 测试
 
 可以使用项目中的测试客户端进行测试：
 
@@ -339,8 +455,14 @@ app.listen(3000);
 # 设置 API Key 环境变量
 export ATYPICA_INBOUND_API_KEY="your-inbound-api-key"
 
-# 运行测试客户端
-python atypica-channel-web-test/test_client.py "测试消息"
+# 运行测试客户端（脚本位于当前目录）
+python test_client.py "测试消息"
+
+# 指定同步调用
+python test_client.py --mode sync "测试同步调用"
+
+# 指定异步调用（默认）
+python test_client.py --mode async "测试异步调用"
 ```
 
-测试客户端会自动处理 API Key 认证，并显示详细的请求和响应信息。
+测试客户端会自动处理 API Key 认证，并支持同步/异步两种调用方式。

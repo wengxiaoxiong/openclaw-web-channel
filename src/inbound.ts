@@ -16,7 +16,13 @@ type InboundPayload = {
   messageId?: string;
   timestamp?: number;
   accountId?: string;
+  responseMode?: "async" | "sync";
 };
+
+function resolveResponseMode(value?: string): "async" | "sync" {
+  if (value === "sync") return "sync";
+  return "async";
+}
 
 /**
  * 从请求头中提取 API key
@@ -305,6 +311,7 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     const userId = payload.userId?.trim();
     const projectId = payload.projectId?.trim();
     const message = payload.message?.trim();
+    const responseMode = resolveResponseMode(payload.responseMode?.trim());
 
     if (!userId || !projectId || !message) {
       res.statusCode = 400;
@@ -383,12 +390,35 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
 
     console.log(`[atypica-web] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
 
-    // 立即返回 202 Accepted
+    if (responseMode === "sync") {
+      const reply = await callOpenClawCLI({
+        message,
+        agentId: route.agentId,
+        sessionKey: route.sessionKey,
+        timeout: 120000,
+      });
+
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: true,
+          mode: "sync",
+          sessionKey: route.sessionKey,
+          agentId: route.agentId,
+          reply,
+        }),
+      );
+      return;
+    }
+
+    // 默认 async：立即返回 202 Accepted
     res.statusCode = 202;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: true,
+        mode: "async",
         message: "Message queued for processing",
         sessionKey: route.sessionKey,
         agentId: route.agentId,
