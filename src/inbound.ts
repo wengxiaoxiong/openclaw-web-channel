@@ -124,7 +124,7 @@ async function createAgent(options: {
     args.push("--bind", bind);
   }
 
-  console.log(`[atypica-web] Creating agent: openclaw ${args.join(" ")}`);
+  console.log(`[web-channel] Creating agent: openclaw ${args.join(" ")}`);
 
   const proc = spawn("openclaw", args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -145,7 +145,7 @@ async function createAgent(options: {
     proc.on("close", (code) => {
       if (code !== 0) {
         const errorMsg = stderr.trim() || stdout.trim() || `Command failed with code ${code}`;
-        console.error(`[atypica-web] Failed to create agent: ${errorMsg}`);
+        console.error(`[web-channel] Failed to create agent: ${errorMsg}`);
         resolve({
           ok: false,
           error: errorMsg,
@@ -153,12 +153,12 @@ async function createAgent(options: {
         return;
       }
 
-      console.log(`[atypica-web] Successfully created agent: ${agentId}`);
+      console.log(`[web-channel] Successfully created agent: ${agentId}`);
       resolve({ ok: true });
     });
 
     proc.on("error", (err) => {
-      console.error(`[atypica-web] Failed to spawn agents add command:`, err);
+      console.error(`[web-channel] Failed to spawn agents add command:`, err);
       resolve({
         ok: false,
         error: `Failed to execute command: ${err.message}`,
@@ -188,7 +188,7 @@ async function callOpenClawCLI(options: {
     args.push("--session-id", options.sessionKey);
   }
 
-  console.log(`[atypica-web] Executing: openclaw ${args.join(" ")}`);
+  console.log(`[web-channel] Executing: openclaw ${args.join(" ")}`);
 
   const proc = spawn("openclaw", args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -236,7 +236,7 @@ async function processMessageAsync(params: {
   agentId: string;
   sessionKey: string;
 }): Promise<void> {
-  console.log(`[atypica-web] Processing message for ${params.userId}:${params.projectId}`);
+  console.log(`[web-channel] Processing message for ${params.userId}:${params.projectId}`);
 
   try {
     // 调用 CLI
@@ -247,7 +247,7 @@ async function processMessageAsync(params: {
       timeout: 120000,
     });
 
-    console.log(`[atypica-web] Got reply: ${reply.substring(0, 100)}...`);
+    console.log(`[web-channel] Got reply: ${reply.substring(0, 100)}...`);
 
     // 推送到 webhook
     const core = getAtypicaRuntime();
@@ -264,9 +264,9 @@ async function processMessageAsync(params: {
       logger: console,
     });
 
-    console.log(`[atypica-web] Successfully pushed reply to webhook`);
+    console.log(`[web-channel] Successfully pushed reply to webhook`);
   } catch (err) {
-    console.error(`[atypica-web] Failed to process message:`, err);
+    console.error(`[web-channel] Failed to process message:`, err);
   }
 }
 
@@ -323,14 +323,14 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     // 移除特殊字符，只保留字母、数字、连字符和下划线
     const normalizedAgentId = userId.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     
-    console.log(`[atypica-web] Received message from ${userId}:${projectId}`);
-    console.log(`[atypica-web] Using agentId: ${normalizedAgentId}`);
+    console.log(`[web-channel] Received message from ${userId}:${projectId}`);
+    console.log(`[web-channel] Using agentId: ${normalizedAgentId}`);
 
     const peerId = `${userId}:${projectId}`;
     
     // 检查 agent 是否存在，如果不存在则创建
     if (!agentExists(cfg, normalizedAgentId)) {
-      console.log(`[atypica-web] Agent "${normalizedAgentId}" does not exist, creating...`);
+      console.log(`[web-channel] Agent "${normalizedAgentId}" does not exist, creating...`);
       
       // 构建 workspace 路径：~/.openclaw/users/<userId>
       const workspace = path.join(os.homedir(), ".openclaw", "users", userId);
@@ -357,13 +357,13 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
 
       // 重新加载配置以获取新创建的 agent
       cfg = core.config.loadConfig() as OpenClawConfig;
-      console.log(`[atypica-web] Agent "${normalizedAgentId}" created successfully`);
+      console.log(`[web-channel] Agent "${normalizedAgentId}" created successfully`);
     }
 
     // 使用 SDK routing 获取 sessionKey（检查当前路由）
     let route = core.channel.routing.resolveAgentRoute({
       cfg,
-      channel: "atypica-web",
+      channel: "web-channel",
       accountId: resolvedAccountId,
       peer: { kind: "dm", id: peerId },
     });
@@ -371,10 +371,10 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     // 检查是否需要添加 peer-level binding
     // 如果路由到的 agent 不是我们期望的，或者不是通过 peer binding 路由的，则添加 peer binding
     if (route.agentId !== normalizedAgentId || route.matchedBy !== "binding.peer") {
-      console.log(`[atypica-web] Adding peer binding for ${peerId} to agent ${normalizedAgentId}`);
+      console.log(`[web-channel] Adding peer binding for ${peerId} to agent ${normalizedAgentId}`);
       cfg = await addPeerBinding(cfg, {
         agentId: normalizedAgentId,
-        channel: "atypica-web",
+        channel: "web-channel",
         accountId: resolvedAccountId,
         peer: { kind: "dm", id: peerId },
       });
@@ -382,13 +382,13 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       // 重新解析路由
       route = core.channel.routing.resolveAgentRoute({
         cfg,
-        channel: "atypica-web",
+        channel: "web-channel",
         accountId: resolvedAccountId,
         peer: { kind: "dm", id: peerId },
       });
     }
 
-    console.log(`[atypica-web] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
+    console.log(`[web-channel] Routed to agent: ${route.agentId}, session: ${route.sessionKey}`);
 
     if (responseMode === "sync") {
       const reply = await callOpenClawCLI({
@@ -434,10 +434,10 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
       agentId: route.agentId,
       sessionKey: route.sessionKey,
     }).catch((err) => {
-      console.error("[atypica-web] Async processing failed:", err);
+      console.error("[web-channel] Async processing failed:", err);
     });
   } catch (err: unknown) {
-    console.error("[atypica-web] Inbound handler error:", err);
+    console.error("[web-channel] Inbound handler error:", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
@@ -471,7 +471,7 @@ async function addPeerBinding(
   });
 
   if (exists) {
-    console.log(`[atypica-web] Peer binding already exists for ${binding.peer.id}`);
+    console.log(`[web-channel] Peer binding already exists for ${binding.peer.id}`);
     return cfg;
   }
 
@@ -494,10 +494,10 @@ async function addPeerBinding(
   const core = getAtypicaRuntime();
   try {
     await core.config.writeConfigFile(updatedConfig);
-    console.log(`[atypica-web] Added peer binding for ${binding.peer.id} to agent ${binding.agentId}`);
+    console.log(`[web-channel] Added peer binding for ${binding.peer.id} to agent ${binding.agentId}`);
     return updatedConfig;
   } catch (err) {
-    console.error(`[atypica-web] Failed to write config file:`, err);
+    console.error(`[web-channel] Failed to write config file:`, err);
     // 返回更新后的配置（即使写入失败，内存中的配置也是正确的）
     return updatedConfig;
   }

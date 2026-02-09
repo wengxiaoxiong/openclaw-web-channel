@@ -1,6 +1,6 @@
-# Atypica Web Channel 集成指南
+# Web Channel 集成指南
 
-本指南介绍如何使用 `atypica-web` channel 插件将你的 Web 服务连接到 OpenClaw。
+本指南介绍如何使用 `web-channel` 插件将你的 Web 服务连接到 OpenClaw。
 
 ## 1. 安装插件
 
@@ -41,7 +41,7 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 
 **重要说明：**
 - 插件 ID 是 `web-channel`（在 `plugins.entries` 中）
-- Channel ID 是 `atypica-web`（在 `channels` 中）
+- Channel ID 是 `web-channel`（在 `channels` 中）
 - 这两个是不同的概念：插件是代码包，Channel 是消息渠道配置
 
 ### 2.2 Channel 配置
@@ -51,7 +51,7 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 ```json
 {
   "channels": {
-    "atypica-web": {
+    "web-channel": {
       "enabled": true,
       "webhookUrl": "https://your-app.com/webhooks/openclaw",
       "apiSecret": "your-webhook-secret-key",
@@ -72,7 +72,7 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 
 ### 配置项说明
 
-#### 基础配置（`channels.atypica-web`）
+#### 基础配置（`channels.web-channel`）
 
 - **`enabled`** (boolean, 默认: `true`): 是否启用该 channel
 - **`name`** (string, 可选): 账户名称
@@ -81,14 +81,14 @@ openclaw plugins install -l /absolute/path/to/atypica-channel
 - **`inboundApiKey`** (string, 可选): 用于认证 Inbound 请求的 API Key（客户端需要在请求头中提供此密钥）
 - **`allowFrom`** (array<string>, 可选): 允许的用户 ID 列表（空数组表示允许所有用户）
 
-#### 多账户配置（`channels.atypica-web.accounts`）
+#### 多账户配置（`channels.web-channel.accounts`）
 
 支持配置多个账户，每个账户可以有自己的配置：
 
 ```json
 {
   "channels": {
-    "atypica-web": {
+    "web-channel": {
       "accounts": {
         "account1": {
           "enabled": true,
@@ -390,20 +390,20 @@ app.listen(3000);
 
 ## 8. 常见问题
 
-### 7.1 为什么配置文件中没有 `atypica-web` channel？
+### 7.1 为什么配置文件中没有 `web-channel`？
 
 **原因：** Channel 配置需要手动添加，插件安装不会自动创建 channel 配置。
 
 **解决方法：**
 1. 确保插件已正确安装（检查 `plugins.load.paths` 和 `plugins.entries.web-channel.enabled`）
-2. 手动添加 `channels.atypica-web` 配置（见上面的配置示例）
+2. 手动添加 `channels.web-channel` 配置（见上面的配置示例）
 3. 重启 OpenClaw Gateway
 
 ### 7.2 插件和 Channel 的区别
 
 - **插件（Plugin）**: 代码包，通过 `plugins.load.paths` 加载，在 `plugins.entries` 中启用
 - **Channel**: 消息渠道配置，在 `channels.<channel-id>` 中配置
-- 一个插件可以注册多个 channel，但 `atypica-web` 插件只注册一个 `atypica-web` channel
+- 一个插件可以注册多个 channel，但 `web-channel` 插件只注册一个 `web-channel` channel
 
 ### 7.3 如何验证插件是否正确加载？
 
@@ -413,7 +413,7 @@ app.listen(3000);
 openclaw channels list
 ```
 
-如果看到 `atypica-web` 在列表中，说明插件已正确加载。
+如果看到 `web-channel` 在列表中，说明插件已正确加载。
 
 ### 7.4 配置示例（完整）
 
@@ -432,7 +432,7 @@ openclaw channels list
     }
   },
   "channels": {
-    "atypica-web": {
+    "web-channel": {
       "enabled": true,
       "webhookUrl": "https://your-app.com/webhooks/openclaw",
       "apiSecret": "your-webhook-secret-key",

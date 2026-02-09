@@ -1,6 +1,6 @@
 {
   "id": "web-channel",
-  "channels": ["atypica-web"],
+  "channels": ["web-channel"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -49,7 +49,7 @@
   "uiHints": {
     "enabled": {
       "label": "Enabled",
-      "help": "Enable the Atypica Web channel"
+      "help": "Enable the web-channel plugin"
     },
     "name": {
       "label": "Account Name",

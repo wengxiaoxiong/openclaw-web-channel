@@ -8,7 +8,7 @@ export function setAtypicaRuntime(r: PluginRuntime): void {
 
 export function getAtypicaRuntime(): PluginRuntime {
   if (!runtime) {
-    throw new Error("Atypica Web runtime not initialized - plugin not registered");
+    throw new Error("Web Channel runtime not initialized - plugin not registered");
   }
   return runtime;
 }

@@ -29,7 +29,7 @@ export async function pushAtypicaReply(params: AtypicaPushOptions): Promise<{
   const apiSecret = resolved.apiSecret?.trim() || process.env.ATYPICA_API_SECRET?.trim();
 
   if (!webhookUrl) {
-    logger?.warn?.("[atypica-web] webhookUrl not configured, skipping push.");
+    logger?.warn?.("[web-channel] webhookUrl not configured, skipping push.");
     return { ok: false, error: "webhookUrl not configured" };
   }
 

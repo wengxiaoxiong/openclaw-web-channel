@@ -8,8 +8,8 @@ import { setAtypicaRuntime } from "./src/runtime.js";
 
 const plugin = {
   id: "web-channel",
-  name: "Atypica Web",
-  description: "Custom web channel for Atypica app",
+  name: "Web Channel",
+  description: "Custom web channel",
   register(api: OpenClawPluginApi) {
     setAtypicaRuntime(api.runtime);
 

@@ -28,7 +28,7 @@ export type AtypicaWebAccountConfig = z.infer<typeof AtypicaWebAccountConfigSche
 export type AtypicaWebConfig = z.infer<typeof AtypicaWebConfigSchema>;
 
 export function resolveAtypicaWebConfig(cfg: unknown, accountId?: string): AtypicaWebAccountConfig {
-  const base = (cfg as Record<string, unknown>)?.channels?.["atypica-web"] as
+  const base = (cfg as Record<string, unknown>)?.channels?.["web-channel"] as
     | AtypicaWebConfig
     | undefined;
   const accounts = base?.accounts ?? {};
@@ -45,7 +45,7 @@ export function resolveAtypicaWebConfig(cfg: unknown, accountId?: string): Atypi
 }
 
 export function listAtypicaWebAccountIds(cfg: unknown): string[] {
-  const base = (cfg as Record<string, unknown>)?.channels?.["atypica-web"] as
+  const base = (cfg as Record<string, unknown>)?.channels?.["web-channel"] as
     | AtypicaWebConfig
     | undefined;
   const ids = new Set<string>();

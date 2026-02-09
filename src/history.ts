@@ -37,7 +37,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
     const resolvedAccountId = accountId ?? resolveDefaultAtypicaWebAccountId(cfg);
     const route = core.channel.routing.resolveAgentRoute({
       cfg,
-      channel: "atypica-web",
+      channel: "web-channel",
       accountId: resolvedAccountId,
       peer: { kind: "dm", id: `${userId}:${projectId}` },
     });
@@ -174,7 +174,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       }),
     );
   } catch (err: unknown) {
-    console.error("[atypica-web] History handler error:", err);
+    console.error("[web-channel] History handler error:", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(

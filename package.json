@@ -10,11 +10,11 @@
       "./index.ts"
     ],
     "channel": {
-      "id": "atypica-web",
-      "label": "Atypica Web",
-      "selectionLabel": "Atypica Web (API)",
-      "docsPath": "/channels/atypica-web",
-      "blurb": "Custom web channel for Atypica app integration."
+      "id": "web-channel",
+      "label": "Web Channel",
+      "selectionLabel": "Web Channel (API)",
+      "docsPath": "/channels/web-channel",
+      "blurb": "Custom web channel integration."
     },
     "install": {
       "localPath": "atypica-channel",
