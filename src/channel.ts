@@ -71,7 +71,7 @@ export const atypicaWebChannelPlugin: ChannelPlugin = {
   configSchema: { schema: atypicaWebConfigSchema },
   config: {
     listAccountIds: (cfg) => {
-      const base = cfg?.channels?.["web-channel"] as AtypicaWebConfig | undefined;
+      const base = (cfg?.channels?.["web-channel"] ?? cfg?.channels?.["atypica-web"]) as AtypicaWebConfig | undefined;
       const ids = new Set<string>();
       if (base?.webhookUrl || base?.enabled !== undefined) {
         ids.add(DEFAULT_ACCOUNT_ID);
@@ -83,7 +83,7 @@ export const atypicaWebChannelPlugin: ChannelPlugin = {
       return Array.from(ids);
     },
     resolveAccount: (cfg, accountId) => {
-      const base = (cfg?.channels?.["web-channel"] ?? {}) as AtypicaWebConfig;
+      const base = (cfg?.channels?.["web-channel"] ?? cfg?.channels?.["atypica-web"] ?? {}) as AtypicaWebConfig;
       const accounts = base?.accounts ?? {};
       const account = accountId ? accounts[accountId] : undefined;
       
@@ -103,7 +103,7 @@ export const atypicaWebChannelPlugin: ChannelPlugin = {
       };
     },
     defaultAccountId: (cfg) => {
-      const base = cfg?.channels?.["web-channel"] as AtypicaWebConfig | undefined;
+      const base = (cfg?.channels?.["web-channel"] ?? cfg?.channels?.["atypica-web"]) as AtypicaWebConfig | undefined;
       const ids = base?.accounts ? 
         Object.keys(base.accounts) : [];
       return ids.length > 0 ? ids[0] : DEFAULT_ACCOUNT_ID;

@@ -25,13 +25,14 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
     const limit = Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10));
     const accountId = url.searchParams.get("accountId")?.trim() || undefined;
 
-    if (!userId || !projectId) {
+    if (!userId) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: false, error: "userId and projectId are required" }));
+      res.end(JSON.stringify({ ok: false, error: "userId is required" }));
       return;
     }
 
+    const peerId = projectId ? `${userId}:${projectId}` : userId;
     const core = getAtypicaRuntime();
     const cfg = core.config.loadConfig() as OpenClawConfig;
     const resolvedAccountId = accountId ?? resolveDefaultAtypicaWebAccountId(cfg);
@@ -39,7 +40,7 @@ export const handleHistoryRequest: OpenClawPluginHttpRouteHandler = async (
       cfg,
       channel: "web-channel",
       accountId: resolvedAccountId,
-      peer: { kind: "dm", id: `${userId}:${projectId}` },
+      peer: { kind: "dm", id: peerId },
     });
 
     // 根据用户需求，路径格式是：~/.openclaw/agents/<agentId>/sessions/sessions.json

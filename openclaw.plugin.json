@@ -1,6 +1,6 @@
 {
   "id": "web-channel",
-  "channels": ["web-channel"],
+  "channels": ["web-channel", "atypica-web"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

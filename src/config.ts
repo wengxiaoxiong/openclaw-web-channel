@@ -27,10 +27,14 @@ export const AtypicaWebConfigSchema = z
 export type AtypicaWebAccountConfig = z.infer<typeof AtypicaWebAccountConfigSchema>;
 export type AtypicaWebConfig = z.infer<typeof AtypicaWebConfigSchema>;
 
+/** Config key may be "web-channel" or "atypica-web" (alias). */
+function getChannelConfig(cfg: unknown): AtypicaWebConfig | undefined {
+  const channels = (cfg as Record<string, unknown>)?.channels as Record<string, unknown> | undefined;
+  return (channels?.["web-channel"] ?? channels?.["atypica-web"]) as AtypicaWebConfig | undefined;
+}
+
 export function resolveAtypicaWebConfig(cfg: unknown, accountId?: string): AtypicaWebAccountConfig {
-  const base = (cfg as Record<string, unknown>)?.channels?.["web-channel"] as
-    | AtypicaWebConfig
-    | undefined;
+  const base = getChannelConfig(cfg);
   const accounts = base?.accounts ?? {};
   const account = accountId ? accounts[accountId] : undefined;
 
@@ -45,9 +49,7 @@ export function resolveAtypicaWebConfig(cfg: unknown, accountId?: string): Atypi
 }
 
 export function listAtypicaWebAccountIds(cfg: unknown): string[] {
-  const base = (cfg as Record<string, unknown>)?.channels?.["web-channel"] as
-    | AtypicaWebConfig
-    | undefined;
+  const base = getChannelConfig(cfg);
   const ids = new Set<string>();
 
   if (base?.webhookUrl || base?.enabled !== undefined) {

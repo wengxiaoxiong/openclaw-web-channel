@@ -2,7 +2,7 @@ import { resolveAtypicaWebConfig } from "./config.js";
 
 export type AtypicaReplyPayload = {
   userId: string;
-  projectId: string;
+  projectId?: string;
   text: string;
   type?: "assistant" | "system";
   timestamp?: number;
@@ -42,7 +42,7 @@ export async function pushAtypicaReply(params: AtypicaPushOptions): Promise<{
       },
       body: JSON.stringify({
         userId: payload.userId,
-        projectId: payload.projectId,
+        ...(payload.projectId != null ? { projectId: payload.projectId } : {}),
         text: payload.text,
         type: payload.type ?? "assistant",
         timestamp: payload.timestamp ?? Date.now(),

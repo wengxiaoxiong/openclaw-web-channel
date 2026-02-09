@@ -230,13 +230,14 @@ async function callOpenClawCLI(options: {
  */
 async function processMessageAsync(params: {
   userId: string;
-  projectId: string;
+  projectId?: string;
   message: string;
   accountId: string;
   agentId: string;
   sessionKey: string;
 }): Promise<void> {
-  console.log(`[web-channel] Processing message for ${params.userId}:${params.projectId}`);
+  const peerLabel = params.projectId ? `${params.userId}:${params.projectId}` : params.userId;
+  console.log(`[web-channel] Processing message for ${peerLabel}`);
 
   try {
     // 调用 CLI
@@ -258,7 +259,7 @@ async function processMessageAsync(params: {
       accountId: params.accountId,
       payload: {
         userId: params.userId,
-        projectId: params.projectId,
+        ...(params.projectId != null ? { projectId: params.projectId } : {}),
         text: reply,
       },
       logger: console,
@@ -313,20 +314,20 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     const message = payload.message?.trim();
     const responseMode = resolveResponseMode(payload.responseMode?.trim());
 
-    if (!userId || !projectId || !message) {
+    if (!userId || !message) {
       res.statusCode = 400;
-      res.end(JSON.stringify({ ok: false, error: "userId, projectId, and message are required" }));
+      res.end(JSON.stringify({ ok: false, error: "userId and message are required" }));
       return;
     }
 
     // 使用 userId 作为 agentId（规范化处理）
     // 移除特殊字符，只保留字母、数字、连字符和下划线
     const normalizedAgentId = userId.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
-    
-    console.log(`[web-channel] Received message from ${userId}:${projectId}`);
-    console.log(`[web-channel] Using agentId: ${normalizedAgentId}`);
+    // peerId：有 projectId 时为 userId:projectId，否则为 userId
+    const peerId = projectId ? `${userId}:${projectId}` : userId;
 
-    const peerId = `${userId}:${projectId}`;
+    console.log(`[web-channel] Received message from ${peerId}`);
+    console.log(`[web-channel] Using agentId: ${normalizedAgentId}`);
     
     // 检查 agent 是否存在，如果不存在则创建
     if (!agentExists(cfg, normalizedAgentId)) {
@@ -428,7 +429,7 @@ export const handleInboundRequest: OpenClawPluginHttpRouteHandler = async (
     // 异步处理（不等待）
     processMessageAsync({
       userId,
-      projectId,
+      ...(projectId ? { projectId } : {}),
       message,
       accountId: resolvedAccountId,
       agentId: route.agentId,
